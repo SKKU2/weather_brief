@@ -189,6 +189,19 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
 .moon-bar { height: 6px; background: #d5d9e6; border-radius: 3px; margin-top: 4px; overflow: hidden; }
 .moon-bar span { display: block; height: 100%; background: #f2c94c; }
 .decision-card { border: 2px solid var(--navy); }
+.table-scroll { overflow-x: auto; }
+.rec th.decision-head { background: var(--navy); color: #fff; text-align: center; }
+.rec td.decision { width: 150px; vertical-align: middle; background: #f7f9fc; }
+.rec td.reasons .r-normal { color: var(--muted); }
+.rec td.reasons .r-unrated { color: #b26a00; font-size: 12px; margin-top: 2px; }
+.dec-btns { display: flex; flex-direction: column; gap: 4px; }
+.dec { font: inherit; font-size: 13px; text-align: left; padding: 4px 8px; border: 1px solid var(--line); border-radius: 5px; background: #fff; cursor: pointer; color: var(--ink); }
+.dec:hover { border-color: var(--navy); }
+.dec:focus-visible { outline: 2px solid #90caf9; }
+.dec.on { font-weight: bold; color: #fff; border-color: transparent; }
+.dec.on.dec-승인 { background: var(--normal); }
+.dec.on.dec-수정 { background: #b07800; }
+.dec.on.dec-보류 { background: var(--stop); }
 .decision-choices { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .decision-choices label { flex-direction: row; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px; font-size: 14px; color: var(--ink); cursor: pointer; }
 .decision-choices label.on { border-color: var(--navy); background: #e8eef5; }
@@ -210,6 +223,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   .print-table td.st-normal, .print-table td.st-adjust, .print-table td.st-stop { text-align: center; font-weight: bold; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .print-table td.st-normal { background: #c8e6c9 !important; } .print-table td.st-adjust { background: #fff59d !important; } .print-table td.st-stop { background: #ffcdd2 !important; }
   .print-table tr { page-break-inside: avoid; }
+  .print-table td.decision-cell { text-align: center; white-space: nowrap; font-size: 9.5pt; }
   .print-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .print-disclaimer { font-size: 8.5pt; color: #444; margin-top: 8px; }
   .print-decision { border: 1.5px solid #1f3a5f; padding: 6px 8px; page-break-inside: avoid; }
@@ -401,14 +415,21 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       </div>
 
       <div class="card decision-card">
-        <h2>지휘관 결심</h2>
-        <div class="decision-choices" id="d-choices"></div>
+        <div class="card-head">
+          <h2>지휘관 지시사항 · 서명</h2>
+          <div class="btn-row">
+            <span class="hint" id="d-progress"></span>
+            <button class="btn small" id="d-all-approve">건의대로 모두 승인</button>
+            <button class="btn ghost small" id="d-all-clear">결심 모두 지우기</button>
+          </div>
+        </div>
+        <p class="hint">활동별 승인 · 수정 · 보류는 위 <b>부대운용 건의</b> 표 오른쪽 칸에서 체크합니다. 다시 누르면 해제됩니다.</p>
         <label>지휘관 지시사항<textarea id="d-directive" rows="3" placeholder="결심 후 지시사항을 기록합니다. 비워 두면 산출물에 빈칸으로 나와 수기로 작성할 수 있습니다."></textarea></label>
         <div class="grid g2">
           <label>결심자 (계급 · 성명)<input type="text" id="d-commander" placeholder="예: 대대장 중령 ○○○"></label>
           <label>결심 시각 (KST)<input type="datetime-local" id="d-time"></label>
         </div>
-        <p class="hint">산출물(pptx 마지막 장, 인쇄물, 한글 표)에 결심란과 서명란이 들어갑니다. 서명은 출력물에 수기로 합니다.</p>
+        <p class="hint">pptx의 부대운용 건의 장, 인쇄물, 한글 표에 활동별 결심 칸(☐ 승인 ☐ 수정 ☐ 보류)과 서명란이 들어갑니다. 비워 두면 출력물에 수기로 체크·서명할 수 있습니다.</p>
       </div>
 
       <p class="disclaimer">※ 본 권고는 참모 건의를 돕는 참고 정보이며, 최종 결심은 지휘관이 합니다.</p>
@@ -1067,6 +1088,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     }
     (act.adjust || []).forEach(function (c) { if (check(c)) hit('adjust', c.k === 'hazard' ? hazText(c) : condText(c, metrics), timeWindow(c, aviation)); });
     (act.stop || []).forEach(function (c) { if (check(c)) hit('stop', c.k === 'hazard' ? hazText(c) : condText(c, metrics), timeWindow(c, aviation)); });
+    var notes = marginNotes(act, metrics, check);
     if (act.cap && LEVEL[level] > LEVEL[act.cap]) {
       level = act.cap;
       reasons.push({ level: act.cap, text: '이 활동은 중단 대신 형태 조정으로 운용', window: '' });
@@ -1075,7 +1097,30 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     var seen = {};
     reasons = reasons.filter(function (r) { if (seen[r.text]) return false; seen[r.text] = 1; return true; })
       .sort(function (a, b) { return LEVEL[b.level] - LEVEL[a.level]; });
-    return { id: act.id, name: act.name, status: level, ruleStatus: level, reasons: reasons, text: recommendationText(act, level, reasons), source: 'rule' };
+    return { id: act.id, name: act.name, status: level, ruleStatus: level, reasons: reasons, within: notes.within, unrated: notes.unrated,
+      text: recommendationText(act, level, reasons), source: 'rule' };
+  }
+
+  /* 걸리지 않은 조건의 여유: 기준에 가까운 순으로 2개, 자료가 없어 평가하지 못한 요소 */
+  function marginNotes(act, metrics, check) {
+    var near = [], missing = {};
+    [['adjust', '조정'], ['stop', '중단']].forEach(function (g) {
+      (act[g[0]] || []).forEach(function (c) {
+        if (c.k !== 'metric') return;
+        var mn = METRICS[c.m] || { name: c.m, unit: '' };
+        var v = metrics[c.m];
+        if (!isNum(v)) { missing[mn.name] = 1; return; }
+        if (check(c)) return;
+        var gap = Math.abs(c.v - v) / Math.max(Math.abs(c.v), 1);
+        near.push({ gap: gap, key: c.m, text: mn.name + ' ' + fmt(v) + mn.unit + ' (' + g[1] + ' 기준 ' + c.v + mn.unit + ')' });
+      });
+    });
+    near.sort(function (a, b) { return a.gap - b.gap; });
+    var seen = {}, within = [];
+    near.forEach(function (n) { if (!seen[n.key] && within.length < 2) { seen[n.key] = 1; within.push(n.text); } });
+    var flags = (act.adjust || []).concat(act.stop || []).filter(function (c) { return c.k === 'flag' && !check(c); }).map(function (c) { return FLAGS[c.f]; });
+    if (flags.length) within.push(flags.map(function (f) { return f.replace(/ 중$| 예상.*$/, ''); }).join('·') + ' 없음');
+    return { within: within, unrated: Object.keys(missing) };
   }
 
   function recommendationText(act, level, reasons) {
@@ -1793,7 +1838,17 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   var DISCLAIMER = '※ 본 권고는 참모 건의를 돕는 참고 정보이며, 최종 결심은 지휘관이 한다.';
   var FONT = 'Pretendard'; // 글꼴이 없는 PC에서는 PowerPoint가 기본 글꼴로 대체한다 (dist\fonts에서 설치 가능)
   var CSS_FONT = "'Pretendard','맑은 고딕'";
-  var DECISIONS = ['건의대로 승인', '수정 승인', '보류 (재검토)'];
+  var DECISIONS = ['승인', '수정', '보류']; // 활동별 지휘관 결심
+
+  /* 근거 문구: 걸린 조건, 없으면 기준까지의 여유와 자료가 없어 평가하지 못한 요소 */
+  function basisLines(r) {
+    if (r.reasons && r.reasons.length) return r.reasons.slice(0, 2).map(function (x) { return x.text + (x.window ? ' [' + x.window + ']' : ''); });
+    var out = [];
+    if (r.within && r.within.length) out.push('기준 이내: ' + r.within.join(', '));
+    if (r.unrated && r.unrated.length) out.push('미평가(자료 없음): ' + r.unrated.join('·'));
+    return out.length ? out : ['해당 조건 없음'];
+  }
+  function decisionText(r, sep) { return DECISIONS.map(function (c) { return box(r.decision === c) + ' ' + c; }).join(sep || '  '); }
 
   function astroRows(a) {
     if (!a) return [];
@@ -1955,18 +2010,30 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     // 4. 부대운용 건의
     var s4 = base('부대운용 건의');
     var recs = b.recommendations || [];
-    var thead = ['활동', '판단', '근거', '건의'].map(function (t) { return { text: t, options: { bold: true, fill: { color: 'E8EEF5' } } }; });
+    var thead = ['활동', '판단', '근거', '건의', '지휘관 결심'].map(function (t, i) {
+      return { text: t, options: { bold: true, fill: { color: i === 4 ? '1F3A5F' : 'E8EEF5' }, color: i === 4 ? 'FFFFFF' : '1C2430', align: i === 4 ? 'center' : 'left' } };
+    });
     var withAi = opts.includeAi && b.ai && b.ai.advice;
+    var dense = recs.length > 7 || withAi;
     var body = recs.map(function (r) {
-      var reason = r.reasons.slice(0, 2).map(function (x) { return x.text + (x.window ? ' [' + x.window + ']' : ''); }).join('\n') || '-';
+      var basis = basisLines(r);
+      var reasonCell = r.reasons && r.reasons.length ? basis.join('\n') : { text: basis.join('\n'), options: { color: '5D6B7C' } };
       var advice = withAi && r.aiAdvice && r.source !== 'ai-up'
-        ? { text: [{ text: r.text, options: { breakLine: true } }, { text: 'AI: ' + r.aiAdvice + (r.aiWindow ? ' [' + r.aiWindow + ']' : ''), options: { color: '5E35B1', fontSize: 9.5 } }] }
+        ? { text: [{ text: r.text, options: { breakLine: true } }, { text: 'AI: ' + r.aiAdvice + (r.aiWindow ? ' [' + r.aiWindow + ']' : ''), options: { color: '5E35B1', fontSize: 9 } }] }
         : r.text;
       return [r.name,
         { text: STATUS_KO[r.status] + (r.source === 'ai-up' ? '\n(AI 상향)' : ''), options: { bold: true, color: 'FFFFFF', fill: { color: STATUS_COLOR[r.status] }, align: 'center' } },
-        reason, advice];
+        reasonCell, advice,
+        { text: decisionText(r, '  '), options: { align: 'center', fontSize: 11, bold: !!r.decision } }];
     });
-    s4.addTable([thead].concat(body), { x: 0.4, y: 1.0, w: 12.5, colW: [1.6, 1.0, 4.6, 5.3], fontFace: FONT, fontSize: 10.5, border: { type: 'solid', color: 'BBBBBB', pt: 0.5 }, valign: 'middle', autoPage: false });
+    s4.addTable([thead].concat(body), { x: 0.3, y: 0.95, w: 12.7, colW: [1.3, 0.8, 3.7, 4.6, 2.3], fontFace: FONT, fontSize: dense ? 9.5 : 10.5, border: { type: 'solid', color: 'BBBBBB', pt: 0.5 }, valign: 'middle', autoPage: false });
+    // 결심 서명란 (표 아래, 슬라이드 하단 고정)
+    var d = decisionOf(b);
+    s4.addText('지휘관 지시사항: ' + (d.directive || ''), { x: 0.3, y: 6.0, w: 7.6, h: 0.75, fontFace: FONT, fontSize: 11, valign: 'top', margin: 5, line: { color: '888888', width: 0.75 } });
+    s4.addText('결심 시각: ' + (d.time ? d.time.replace('T', ' ') : '20   .   .   .    :   '), { x: 8.1, y: 6.0, w: 4.9, h: 0.33, fontFace: FONT, fontSize: 11 });
+    s4.addText('결심자: ' + (d.commander || '') + '', { x: 8.1, y: 6.38, w: 3.6, h: 0.37, fontFace: FONT, fontSize: 11 });
+    s4.addText('(서명)', { x: 11.9, y: 6.38, w: 1.1, h: 0.37, fontFace: FONT, fontSize: 11, align: 'right' });
+    s4.addShape(pptx.ShapeType.line, { x: 8.75, y: 6.75, w: 4.25, h: 0, line: { color: '333333', width: 0.75 } });
 
     // 5. AI 조언 (선택)
     if (opts.includeAi && b.ai && b.ai.advice) {
@@ -1977,17 +2044,6 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       s5.addText(txt, { x: 0.4, y: 1.0, w: 12.5, h: 5.8, fontFace: FONT, fontSize: 13, valign: 'top' });
     }
 
-    // 마지막 장: 지휘관 결심
-    var d = decisionOf(b);
-    var s6 = base('지휘관 결심');
-    s6.addText('종합 건의: ' + STATUS_KO[ev.overall] + '  |  ' + warningsText(b), { x: 0.6, y: 1.05, w: 12.1, h: 0.5, fontFace: FONT, fontSize: 15, bold: true, color: '1F3A5F' });
-    s6.addText(DECISIONS.map(function (c) { return box(d.choice === c) + ' ' + c; }).join('        '), { x: 0.6, y: 1.75, w: 12.1, h: 0.7, fontFace: FONT, fontSize: 22, bold: true });
-    s6.addText('지휘관 지시사항', { x: 0.6, y: 2.65, w: 4, h: 0.4, fontFace: FONT, fontSize: 13, bold: true, color: '555555' });
-    s6.addText(d.directive || ' ', { x: 0.6, y: 3.05, w: 12.1, h: 2.5, fontFace: FONT, fontSize: 15, valign: 'top', margin: 10, line: { color: '888888', width: 1 } });
-    s6.addText('결심 시각: ' + (d.time ? d.time.replace('T', ' ') + ' KST' : '20    .     .     .      :      '), { x: 0.6, y: 5.85, w: 6, h: 0.5, fontFace: FONT, fontSize: 14 });
-    s6.addText('결심자: ' + (d.commander || '                              ') + '      (서명)', { x: 6.7, y: 5.85, w: 6, h: 0.5, fontFace: FONT, fontSize: 14, align: 'right' });
-    s6.addShape(pptx.ShapeType.line, { x: 8.6, y: 6.35, w: 4.1, h: 0, line: { color: '333333', width: 1 } });
-
     var t = (b.targetTime || '').replace(/[-:]/g, '').replace('T', '_');
     return pptx.writeFile({ fileName: '기상브리핑_' + t + '_' + b.sessionType + '.pptx' });
   }
@@ -1997,12 +2053,13 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     var st = inline ? ' style="border:1px solid #888;padding:4px 6px;"' : '';
     var th = inline ? ' style="border:1px solid #888;padding:4px 6px;background:#e8eef5;font-weight:bold;"' : '';
     var bg = { normal: '#c8e6c9', adjust: '#fff59d', stop: '#ffcdd2' };
+    var dc = inline ? ' style="border:1px solid #888;padding:4px 6px;text-align:center;white-space:nowrap;"' : ' class="decision-cell"';
     var rows = (b.recommendations || []).map(function (r) {
-      var reason = r.reasons.slice(0, 2).map(function (x) { return esc(x.text) + (x.window ? ' [' + esc(x.window) + ']' : ''); }).join('<br>') || '-';
+      var reason = basisLines(r).map(esc).join('<br>');
       var sc = inline ? ' style="border:1px solid #888;padding:4px 6px;text-align:center;font-weight:bold;background:' + bg[r.status] + ';"' : ' class="st-' + r.status + '"';
-      return '<tr><td' + st + '>' + esc(r.name) + '</td><td' + sc + '>' + STATUS_KO[r.status] + (r.source === 'ai-up' ? '(AI 상향)' : '') + '</td><td' + st + '>' + reason + '</td><td' + st + '>' + esc(r.text) + '</td></tr>';
+      return '<tr><td' + st + '>' + esc(r.name) + '</td><td' + sc + '>' + STATUS_KO[r.status] + (r.source === 'ai-up' ? '(AI 상향)' : '') + '</td><td' + st + '>' + reason + '</td><td' + st + '>' + esc(r.text) + '</td><td' + dc + '>' + esc(decisionText(r, ' ')) + '</td></tr>';
     }).join('');
-    return '<table' + (inline ? ' style="border-collapse:collapse;font-family:' + CSS_FONT + ';font-size:10pt;"' : ' class="print-table"') + '><thead><tr><th' + th + '>활동</th><th' + th + '>판단</th><th' + th + '>근거</th><th' + th + '>건의</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    return '<table' + (inline ? ' style="border-collapse:collapse;font-family:' + CSS_FONT + ';font-size:10pt;"' : ' class="print-table"') + '><thead><tr><th' + th + '>활동</th><th' + th + '>판단</th><th' + th + '>근거</th><th' + th + '>건의</th><th' + th + '>지휘관 결심</th></tr></thead><tbody>' + rows + '</tbody></table>';
   }
 
   function rowsTableHtml(rows, inline) {
@@ -2016,7 +2073,6 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   function decisionLines(b) {
     var d = decisionOf(b);
     return {
-      choices: DECISIONS.map(function (c) { return box(d.choice === c) + ' ' + c; }).join('    '),
       directive: d.directive || '',
       time: d.time ? d.time.replace('T', ' ') + ' KST' : '20    .    .    .     :    ',
       commander: d.commander || ''
@@ -2036,7 +2092,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       '<h2>부대운용 건의</h2>' + recTableHtml(b, false) +
       (a ? '<h2>AI 보조 조언 (참고)</h2><p>' + esc(a.summary) + '</p><ul>' + a.risks.map(function (r) { return '<li>' + esc(r.title + ' — ' + r.detail + (r.timeWindow ? ' [' + r.timeWindow + ']' : '')) + '</li>'; }).join('') + '</ul><p class="print-meta">모델 ' + esc(b.ai.model) + '</p>' : '') +
       (b.memo ? '<h2>비고</h2><p>' + esc(b.memo) + '</p>' : '') +
-      '<h2>지휘관 결심</h2><div class="print-decision"><div class="choices">' + esc(dl.choices) + '</div><div><b>지시사항</b></div><div class="directive">' + esc(dl.directive) + '</div>' +
+      '<div class="print-decision"><div><b>지휘관 지시사항</b></div><div class="directive">' + esc(dl.directive) + '</div>' +
       '<div class="sign"><span>결심 시각: ' + esc(dl.time) + '</span><span>결심자: ' + esc(dl.commander || '                    ') + ' (서명) ______________</span></div></div>' +
       '<p class="print-disclaimer">' + DISCLAIMER + '</p></div>';
   }
@@ -2049,9 +2105,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       metricTableHtml(b, ev, true) + '<p></p>' + (ast.length ? rowsTableHtml([['광명 자료', b.astro.date + ' ' + (b.astro.locationName || '')]].concat(ast), true) + '<p></p>' : '') +
       recTableHtml(b, true) + '<p></p>' +
       '<table style="border-collapse:collapse;width:100%;"><tbody>' +
-      '<tr><th colspan="2"' + cell.replace('padding:6px;', 'padding:6px;background:#e8eef5;') + '>지휘관 결심</th></tr>' +
-      '<tr><td colspan="2"' + cell + '>' + esc(dl.choices) + '</td></tr>' +
-      '<tr><td' + cell + '>지시사항</td><td' + cell + ' height="80">' + esc(dl.directive) + '</td></tr>' +
+      '<tr><td' + cell + '>지휘관 지시사항</td><td' + cell + ' height="80">' + esc(dl.directive) + '</td></tr>' +
       '<tr><td' + cell + '>결심 시각</td><td' + cell + '>' + esc(dl.time) + '</td></tr>' +
       '<tr><td' + cell + '>결심자 (서명)</td><td' + cell + '>' + esc(dl.commander) + '</td></tr></tbody></table>' +
       '<p style="font-family:' + CSS_FONT + ';font-size:9pt;">' + DISCLAIMER + '</p>';
@@ -2061,10 +2115,10 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     var lines = [titleLine(b), warningsText(b) + ' / 종합 판단: ' + STATUS_KO[ev.overall], ''];
     metricRows(b, ev).forEach(function (r) { lines.push(r[0] + '\t' + r[1]); });
     astroRows(b.astro).forEach(function (r) { lines.push(r[0] + '\t' + r[1]); });
-    lines.push('', '활동\t판단\t근거\t건의');
-    (b.recommendations || []).forEach(function (r) { lines.push([r.name, STATUS_KO[r.status], r.reasons.map(function (x) { return x.text; }).join('; '), r.text].join('\t')); });
+    lines.push('', '활동\t판단\t근거\t건의\t지휘관 결심');
+    (b.recommendations || []).forEach(function (r) { lines.push([r.name, STATUS_KO[r.status], basisLines(r).join('; '), r.text, decisionText(r, ' ')].join('\t')); });
     var dl = decisionLines(b);
-    lines.push('', '지휘관 결심\t' + dl.choices, '지시사항\t' + dl.directive, '결심 시각\t' + dl.time, '결심자 (서명)\t' + dl.commander, '', DISCLAIMER);
+    lines.push('', '지휘관 지시사항\t' + dl.directive, '결심 시각\t' + dl.time, '결심자 (서명)\t' + dl.commander, '', DISCLAIMER);
     return lines.join('\n');
   }
 
@@ -2367,6 +2421,8 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       var p = prev[r.id];
       // 판정이 같고 담당자가 문구를 고쳤으면 고친 문구를 유지
       if (p && p.textEdited && p.status === r.status) { r.text = p.text; r.textEdited = true; }
+      // 판정이 그대로면 이미 받은 지휘관 결심도 유지
+      if (p && p.decision && p.status === r.status) r.decision = p.decision;
       return r;
     });
     b.evaluation = { metrics: ev.metrics, hazards: ev.hazards, overall: ev.overall };
@@ -2404,17 +2460,22 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       '</div>' + (a.isDefaultLocation ? '<p class="hint" style="color:#b26a00">기본 위치(서울)로 계산했습니다. 이력 · 설정 → 설정에서 부대 위치를 입력하세요.</p>' : '');
   }
 
-  var DECISIONS = ['건의대로 승인', '수정 승인', '보류 (재검토)'];
+  /* 지휘관 결심: 활동별 승인/수정/보류는 건의 표의 오른쪽 칸, 여기는 지시사항과 서명 정보 */
+  var DECISIONS = ['승인', '수정', '보류'];
+  function stampDecisionTime() {
+    var d = state.b.decision;
+    if (!d.time) { d.time = nowKstLocal().slice(0, 14) + pad(new Date(Date.now() + 9 * 3600000).getUTCMinutes()); $('d-time').value = d.time; }
+  }
   function renderDecision() {
-    var d = state.b.decision = state.b.decision || { choice: '', directive: '', commander: '', time: '' };
-    $('d-choices').innerHTML = DECISIONS.map(function (c) {
-      return '<label class="' + (d.choice === c ? 'on' : '') + '"><input type="radio" name="d-choice" value="' + c + '"' + (d.choice === c ? ' checked' : '') + '>' + c + '</label>';
-    }).join('') + '<button class="btn ghost small" id="d-clear">선택 해제</button>';
+    var d = state.b.decision = state.b.decision || { directive: '', commander: '', time: '' };
     $('d-directive').value = d.directive || ''; $('d-commander').value = d.commander || ''; $('d-time').value = d.time || '';
-    document.querySelectorAll('[name=d-choice]').forEach(function (r) {
-      r.onchange = function () { d.choice = r.value; if (!d.time) { d.time = nowKstLocal().slice(0, 14) + pad(new Date(Date.now() + 9 * 3600000).getUTCMinutes()); } renderDecision(); scheduleSave(); };
-    });
-    $('d-clear').onclick = function () { d.choice = ''; renderDecision(); scheduleSave(); };
+    var recs = state.b.recommendations || [], done = recs.filter(function (r) { return r.decision; }).length;
+    $('d-progress').textContent = '활동별 결심 ' + done + ' / ' + recs.length + ' 완료';
+  }
+  function setAllDecisions(val) {
+    (state.b.recommendations || []).forEach(function (r) { r.decision = val; });
+    if (val) stampDecisionTime();
+    renderRecTable(); renderDecision(); scheduleSave();
   }
 
   function overallOf(b) {
@@ -2489,14 +2550,26 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     var rows = b.recommendations.map(function (r, i) {
       var reasons = r.reasons.length ? r.reasons.map(function (x) {
         return '<div class="r-' + x.level + '">• ' + esc(x.text) + (x.window ? ' <span class="win">[' + esc(x.window) + ']</span>' : '') + '</div>';
-      }).join('') : '<span class="hint">해당 조건 없음</span>';
+      }).join('') : ((r.within && r.within.length ? '<div class="r-normal">기준 이내: ' + esc(r.within.join(', ')) + '</div>' : '') +
+        (r.unrated && r.unrated.length ? '<div class="r-unrated">미평가(자료 없음): ' + esc(r.unrated.join('·')) + '</div>' : '')) || '<span class="hint">해당 조건 없음</span>';
+      var dec = '<div class="dec-btns" role="group" aria-label="' + esc(r.name) + ' 지휘관 결심">' + DECISIONS.map(function (c) {
+        return '<button type="button" class="dec ' + (r.decision === c ? 'on dec-' + c : '') + '" data-dec="' + i + '" data-val="' + c + '" aria-pressed="' + (r.decision === c) + '">' + (r.decision === c ? '☑ ' : '☐ ') + c + '</button>';
+      }).join('') + '</div>';
       var src = '<span class="badge ' + (r.source === 'ai-up' ? 'ai-up' : r.source === 'ai' ? 'ai' : '') + '">' + X.SRC_KO[r.source || 'rule'] + '</span>';
       var ai = r.aiStatus ? '<div class="ai-note">AI: ' + STATUS_KO[r.aiStatus] + (r.aiIgnoredLower ? ' (규칙보다 낮아 반영 안 함)' : '') + (r.aiAdvice ? ' — ' + esc(r.aiAdvice) : '') + (r.aiWindow ? ' [' + esc(r.aiWindow) + ']' : '') + '</div>' : '';
       return '<tr><td class="light ' + r.status + '">' + STATUS_KO[r.status] + '</td><td class="name">' + esc(r.name) + '<br>' + src + (r.textEdited ? ' <span class="badge edited">수정됨</span>' : '') +
         '</td><td class="reasons">' + reasons + ai + '</td><td><textarea data-rec="' + i + '">' + esc(r.text) + '</textarea>' +
-        (r.textEdited ? '<button class="btn ghost small" data-reset="' + i + '">자동 문구로 되돌리기</button>' : '') + '</td></tr>';
+        (r.textEdited ? '<button class="btn ghost small" data-reset="' + i + '">자동 문구로 되돌리기</button>' : '') + '</td><td class="decision">' + dec + '</td></tr>';
     }).join('');
-    $('rec-table').innerHTML = '<table class="rec"><thead><tr><th>판단</th><th>활동</th><th>근거 (기준표)</th><th>건의 문구 (수정 가능)</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    $('rec-table').innerHTML = '<div class="table-scroll"><table class="rec"><thead><tr><th>판단</th><th>활동</th><th>근거 (기준표)</th><th>건의 문구 (수정 가능)</th><th class="decision-head">지휘관 결심</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+    document.querySelectorAll('#rec-table [data-dec]').forEach(function (btn) {
+      btn.onclick = function () {
+        var r = b.recommendations[+btn.dataset.dec];
+        r.decision = r.decision === btn.dataset.val ? '' : btn.dataset.val; // 같은 칸을 다시 누르면 해제
+        if (r.decision) stampDecisionTime();
+        renderRecTable(); renderDecision(); scheduleSave();
+      };
+    });
     document.querySelectorAll('#rec-table textarea').forEach(function (ta) {
       ta.oninput = function () { var r = b.recommendations[+ta.dataset.rec]; r.text = ta.value; r.textEdited = true; scheduleSave(); };
       ta.onchange = function () { renderRecTable(); };
@@ -2632,10 +2705,24 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       };
     });
   }
+  /* 예전에 저장한 회차: 판정은 그대로 두고 '기준 이내/미평가' 근거만 저장된 수치로 채운다 */
+  function backfillBasis(b) {
+    if (!b.evaluated || !b.evaluation || !b.evaluation.metrics) return;
+    (b.recommendations || []).forEach(function (r) {
+      if (r.within) return;
+      var act = state.settings.activities.filter(function (a) { return a.id === r.id; })[0];
+      if (!act) return;
+      var fresh = R.evaluateActivity(act, b.evaluation.metrics, b.evaluation.hazards || {}, state.aviation);
+      r.within = fresh.within; r.unrated = fresh.unrated;
+    });
+  }
+
   function openBriefing(id) {
     S.getBriefing(id).then(function (b) {
       if (!b) return;
-      state.b = b; fillForm(); renderBrief(); showTab(b.evaluated ? 'brief' : 'input');
+      state.b = b; fillForm();
+      backfillBasis(b);
+      renderBrief(); showTab(b.evaluated ? 'brief' : 'input');
       toast('회차를 열었습니다.');
     });
   }
@@ -2889,6 +2976,8 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     $('btn-save').onclick = function () { save(false); };
     $('btn-pptx').onclick = doPptx; $('btn-print').onclick = doPrint; $('btn-hwp').onclick = doHwp;
     $('btn-ai').onclick = requestAi;
+    $('d-all-approve').onclick = function () { setAllDecisions('승인'); };
+    $('d-all-clear').onclick = function () { setAllDecisions(''); };
     $('d-directive').oninput = function () { state.b.decision.directive = this.value; scheduleSave(); };
     $('d-commander').oninput = function () { state.b.decision.commander = this.value; scheduleSave(); };
     $('d-time').onchange = function () { state.b.decision.time = this.value; scheduleSave(); };
