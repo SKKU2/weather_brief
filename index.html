@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>기상 브리핑 도구</title>
+<meta name="description" content="METAR·TAF·기상특보를 입력해 정상·조정·중단 부대운용 건의와 브리핑 자료를 만드는 도구. 로그인 없이 브라우저에서 동작합니다.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="기상 브리핑 · 부대운용 건의 도구">
+<meta property="og:description" content="METAR·TAF·기상특보를 입력해 정상·조정·중단 부대운용 건의와 브리핑 자료를 만드는 도구. 로그인 없이 브라우저에서 동작합니다.">
+<meta property="og:url" content="https://skku2.github.io/weather_brief/">
+<meta property="og:image" content="https://skku2.github.io/weather_brief/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://skku2.github.io/weather_brief/og-image.png">
 <style>
 @font-face {
   font-family: "Pretendard";
@@ -2928,7 +2938,10 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   function fetchCivil() {
     readForm();
     var loc = state.settings.location || {}, ds = (state.b.targetTime || '').slice(0, 10);
-    if (loc.lat == null || loc.lng == null) { toast('먼저 이력 · 설정 → 설정에서 위치(위도·경도)를 입력하세요.', true); return; }
+    if (loc.lat == null || loc.lng == null) {
+      showTab('history'); showSub('settings'); $('s-lat').focus();
+      toast('예보를 가져올 위치(위도·경도)를 먼저 입력하세요. 입력 후 1. 입력 탭에서 다시 누르면 됩니다.', true); return;
+    }
     var lat = Math.round(Number(loc.lat) * 10) / 10, lng = Math.round(Number(loc.lng) * 10) / 10;
     modal('인터넷 예보 가져오기', '<p><b>' + esc(ds) + '</b> 예보를 Open-Meteo(api.open-meteo.com)에서 가져옵니다.</p><p>전송 내용: 위치 좌표 ' + lat + ', ' + lng + ' (소수 첫째 자리) — 부대명 등 다른 정보는 보내지 않습니다.</p><p class="hint">인트라넷(망분리) PC에서는 사용하지 마세요. 가져온 값은 입력칸을 덮어씁니다.</p>',
       [{ label: '취소', value: false }, { label: '가져오기', value: true, primary: true }]).then(function (go) {
