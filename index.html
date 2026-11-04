@@ -484,11 +484,11 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
           <label>부대명 (AI로 전송하지 않음)<input type="text" id="s-unit"></label>
           <label>기본 작성자<input type="text" id="s-author" placeholder="새 회차에 자동으로 들어갑니다"></label>
           <label>기본 지형<select id="s-region"><option value="land">육상</option><option value="mountain">산지</option></select></label>
-          <label>위치 이름 (광명 자료용)<input type="text" id="s-loc-name" placeholder="예: 주둔지"></label>
-          <label>위도 (°N)<input type="number" step="0.1" min="33" max="39" id="s-lat"></label>
-          <label>경도 (°E)<input type="number" step="0.1" min="124" max="132" id="s-lng"></label>
+          <label>위치 이름 (서울 고정)<input type="text" id="s-loc-name" readonly></label>
+          <label>위도 (°N, 고정)<input type="number" id="s-lat" readonly></label>
+          <label>경도 (°E, 고정)<input type="number" id="s-lng" readonly></label>
         </div>
-        <p class="hint">로그인은 없습니다. 작성자는 텍스트로만 기록됩니다. 위도·경도는 BMNT·EENT·월출몰 계산에만 쓰며 AI로 보내지 않습니다. 소수 첫째 자리(약 10km)면 충분합니다.</p>
+        <p class="hint">로그인은 없습니다. 작성자는 텍스트로만 기록됩니다. 위치는 서울(37.57°N, 126.98°E)로 고정되어 있으며, 광명 자료 계산과 인터넷 예보 가져오기에 쓰입니다. 좌표는 AI로 보내지 않습니다.</p>
       </div>
 
       <div class="card">
@@ -975,7 +975,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     return {
       unitName: '', region: 'land', authorName: '',
       // 위치는 공개 배포 코드에 넣지 않는다. 각 사용자가 설정에서 입력하면 그 브라우저에만 저장된다.
-      location: { name: '', lat: null, lng: null, isDefault: true },
+      location: { name: '서울', lat: 37.57, lng: 126.98, isDefault: false },
       thresholds: defaultThresholds(), activities: defaultActivities(),
       ai: { provider: 'off', model: 'claude-sonnet-5-5', effort: 'low', endpoint: '', includeInOutputs: true }
     };
@@ -2212,7 +2212,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     if (!saved) return d;
     var s = Object.assign({}, d, saved);
     s.ai = Object.assign({}, d.ai, saved.ai || {});
-    s.location = Object.assign({}, d.location, saved.location || {});
+    s.location = d.location; // 위치는 서울로 고정 (저장된 값 무시)
     s.thresholds = Object.assign({}, d.thresholds, saved.thresholds || {});
     s.activities = Array.isArray(saved.activities) && saved.activities.length ? saved.activities : d.activities;
     return s;
@@ -2994,15 +2994,6 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     $('d-directive').oninput = function () { state.b.decision.directive = this.value; scheduleSave(); };
     $('d-commander').oninput = function () { state.b.decision.commander = this.value; scheduleSave(); };
     $('d-time').onchange = function () { state.b.decision.time = this.value; scheduleSave(); };
-    function setLoc() {
-      var lat = Number($('s-lat').value), lng = Number($('s-lng').value);
-      if (!$('s-lat').value || !$('s-lng').value || !isFinite(lat) || !isFinite(lng)) { toast('위도와 경도를 숫자로 입력하세요.', true); return; }
-      state.settings.location = { name: $('s-loc-name').value.trim() || '부대 위치', lat: lat, lng: lng, isDefault: false };
-      saveSettings();
-      if (state.b.evaluated) { state.b.astro = computeAstro(state.b); renderAstro(); scheduleSave(); }
-      toast('위치를 저장했습니다. 광명 자료를 다시 계산했습니다.');
-    }
-    ['s-loc-name', 's-lat', 's-lng'].forEach(function (id) { $(id).onchange = setLoc; });
     $('opt-ai-out').onchange = function () { state.settings.ai.includeInOutputs = this.checked; saveSettings(); };
     $('btn-backup').onclick = doBackup;
     $('f-import').onchange = function () { doImport(this.files[0]); this.value = ''; };
