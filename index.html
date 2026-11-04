@@ -367,6 +367,22 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     </div>
 
     <div class="card">
+      <div class="card-head">
+        <h2>우주기상 (통신·항법 영향)</h2>
+        <button class="btn" id="btn-fetch-sw" title="인터넷 연결 PC 전용. NOAA 우주기상예보센터(SWPC)에서 가져옵니다">인터넷 우주기상 가져오기</button>
+      </div>
+      <div class="grid g3">
+        <label>지자기폭풍 G<select data-sw="g"><option value="">미입력</option><option value="0">0 없음</option><option value="1">1 경미</option><option value="2">2 보통</option><option value="3">3 강함</option><option value="4">4 심함</option><option value="5">5 극심</option></select></label>
+        <label>태양복사폭풍 S<select data-sw="s"><option value="">미입력</option><option value="0">0 없음</option><option value="1">1 경미</option><option value="2">2 보통</option><option value="3">3 강함</option><option value="4">4 심함</option><option value="5">5 극심</option></select></label>
+        <label>전파두절 R<select data-sw="r"><option value="">미입력</option><option value="0">0 없음</option><option value="1">1 경미</option><option value="2">2 보통</option><option value="3">3 강함</option><option value="4">4 심함</option><option value="5">5 극심</option></select></label>
+        <label>최대 Kp 지수 (0~9)<input type="number" step="0.1" min="0" max="9" data-sw="kpMax"></label>
+        <label>최근 태양 플레어 등급<input type="text" data-sw="flare" placeholder="예: C1.1 / M2.3 / X1.0"></label>
+        <label>R1 이상 전파두절 확률 (%)<input type="number" step="5" min="0" max="100" data-sw="rProb"></label>
+      </div>
+      <p class="hint" id="sw-source"></p>
+    </div>
+
+    <div class="card">
       <h2>비고</h2>
       <textarea id="f-memo" rows="2" placeholder="담당자 메모 (AI로 전송하지 않음)"></textarea>
     </div>
@@ -401,6 +417,11 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       <div class="card">
         <div class="card-head"><h2>광명 자료 (BMNT · EENT · 월광)</h2><span class="hint" id="astro-loc"></span></div>
         <div id="astro-body"></div>
+      </div>
+
+      <div class="card" id="sw-card">
+        <div class="card-head"><h2>우주기상 (통신·항법 영향)</h2><span class="hint" id="sw-meta"></span></div>
+        <div id="sw-body"></div>
       </div>
 
       <div class="grid g2">
@@ -1408,6 +1429,104 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
 })(typeof window !== 'undefined' ? window : globalThis);
 
 </script>
+<script>/* js/spacewx.js */
+/* 우주기상 (NOAA SWPC, 키 불필요). 사용자가 버튼을 누를 때만 호출한다.
+ * G: 지자기폭풍, S: 태양복사폭풍, R: 전파두절 (각 0~5). 통신·항법 영향은 참고 정보이며 부대활동 판정에는 넣지 않는다. */
+(function (root) {
+  'use strict';
+
+  var BASE = 'https://services.swpc.noaa.gov';
+  var URLS = {
+    scales: BASE + '/products/noaa-scales.json',
+    kp: BASE + '/products/noaa-planetary-k-index-forecast.json',
+    flares: BASE + '/json/goes/primary/xray-flares-latest.json'
+  };
+  var SCALE_KO = ['없음', '경미', '보통', '강함', '심함', '극심'];
+  var LEVEL_KO = { normal: '정상', adjust: '주의', stop: '경고' };
+
+  function n(v) { return v === '' || v == null || isNaN(Number(v)) ? null : Number(v); }
+  function has(sw) { return !!sw && ['g', 's', 'r', 'kpMax'].some(function (k) { return n(sw[k]) != null; }); }
+
+  /* Kp 5 = G1 … Kp 9 = G5 */
+  function gFromKp(kp) { return kp == null ? null : Math.max(0, Math.min(5, Math.floor(kp) - 4)); }
+  function effG(sw) {
+    var g = n(sw.g), k = gFromKp(n(sw.kpMax));
+    return g == null ? k : k == null ? g : Math.max(g, k);
+  }
+
+  /* 통신·항법 영향: 항목별 정상 / 주의 / 경고 */
+  function assess(sw) {
+    if (!has(sw)) return [];
+    var g = effG(sw) || 0, s = n(sw.s) || 0, r = n(sw.r) || 0, rp = n(sw.rProb);
+    function row(name, level, text) { return { name: name, level: level, text: text }; }
+    var hf = r >= 3 ? row('HF 무선통신', 'stop', 'R' + r + ' 전파두절: 주간 HF 통신이 수십 분~수 시간 두절될 수 있음. 위성·유선 등 대체 수단으로 전환')
+      : r >= 1 || g >= 3 ? row('HF 무선통신', 'adjust', (r >= 1 ? 'R' + r + ' 전파두절' : 'G' + g + ' 지자기폭풍') + ': HF 신호 약화·일시 두절 가능. 대체 통신수단 확인')
+      : rp != null && rp >= 50 ? row('HF 무선통신', 'adjust', 'R1 이상 전파두절 발생 확률 ' + rp + '%. 대체 통신수단 확인')
+      : row('HF 무선통신', 'normal', '영향 없음' + (rp != null ? ' (R1 이상 확률 ' + rp + '%)' : ''));
+    var gps = g >= 3 || s >= 3 ? row('GPS·위성항법', 'stop', (g >= 3 ? 'G' + g : 'S' + s) + ': 위치 오차 증가·수신 끊김 가능. 지도·나침반 등 대체 항법 준비')
+      : g >= 2 || s >= 2 ? row('GPS·위성항법', 'adjust', (g >= 2 ? 'G' + g : 'S' + s) + ': 위치 오차가 다소 커질 수 있음. 정밀 위치가 필요한 활동은 재확인')
+      : row('GPS·위성항법', 'normal', '영향 없음');
+    var sat = s >= 3 || g >= 4 ? row('위성통신', 'stop', (s >= 3 ? 'S' + s : 'G' + g) + ': 위성통신 장애·위성 이상 가능. 대체 통신 계획 확인')
+      : s >= 1 || g >= 3 ? row('위성통신', 'adjust', (s >= 1 ? 'S' + s : 'G' + g) + ': 간헐적 위성통신 품질 저하 가능')
+      : row('위성통신', 'normal', '영향 없음');
+    return [hf, gps, sat];
+  }
+
+  function overall(sw) {
+    var order = { normal: 0, adjust: 1, stop: 2 };
+    return assess(sw).reduce(function (acc, x) { return order[x.level] > order[acc] ? x.level : acc; }, 'normal');
+  }
+
+  function scaleText(sw) {
+    function sc(k) { var v = n(sw[k]); return k.toUpperCase() + (v == null ? '-' : v) + (v ? '(' + SCALE_KO[v] + ')' : ''); }
+    return sc('g') + ' · ' + sc('s') + ' · ' + sc('r');
+  }
+  function summaryText(sw) {
+    if (!has(sw)) return '우주기상 자료 없음';
+    var kp = n(sw.kpMax);
+    return scaleText(sw) + (kp != null ? ' · Kp 최대 ' + kp : '') + (sw.flare ? ' · 최근 플레어 ' + sw.flare : '');
+  }
+  /* 산출물 표용 [항목, 값] */
+  function rows(sw) {
+    if (!has(sw)) return [];
+    return [['우주기상 (G·S·R)', summaryText(sw)]].concat(assess(sw).map(function (x) { return [x.name, LEVEL_KO[x.level] + ' — ' + x.text]; }));
+  }
+
+  /* 대상 날짜(KST)의 값: Kp는 그날 KST 00~24시의 최대, G는 예보, R·S는 대상일이 오늘 이전이면 현재 관측값 */
+  function summarize(scales, kp, flares, dateStr) {
+    var startMs = Date.parse(dateStr + 'T00:00:00Z') - 9 * 3600000, endMs = startMs + 24 * 3600000;
+    var kps = (kp || []).filter(function (x) {
+      var t = Date.parse(x.time_tag + 'Z'); return t + 3 * 3600000 > startMs && t < endMs && x.kp != null;
+    }).map(function (x) { return Number(x.kp); });
+    var cur = scales && scales['0'] || {}, fc = null;
+    Object.keys(scales || {}).forEach(function (k) { if (k !== '0' && scales[k].DateStamp === dateStr) fc = scales[k]; });
+    var today = cur.DateStamp || new Date().toISOString().slice(0, 10), isNow = dateStr <= today;
+    function num(v) { return v == null || v === '' ? null : Number(v); }
+    var g = Math.max(isNow ? num(cur.G && cur.G.Scale) || 0 : 0, fc ? num(fc.G && fc.G.Scale) || 0 : 0);
+    var f = flares && flares[0];
+    return {
+      g: g,
+      s: isNow ? num(cur.S && cur.S.Scale) || 0 : 0,
+      r: isNow ? num(cur.R && cur.R.Scale) || 0 : 0,
+      kpMax: kps.length ? Math.round(Math.max.apply(null, kps) * 10) / 10 : '',
+      flare: f && f.max_class ? f.max_class : '',
+      rProb: fc && fc.R && fc.R.MinorProb != null ? Number(fc.R.MinorProb) : '',
+      sProb: fc && fc.S && fc.S.Prob != null ? Number(fc.S.Prob) : ''
+    };
+  }
+
+  function fetchSpaceWx(dateStr, fetchImpl) {
+    var f = fetchImpl || root.fetch.bind(root);
+    function get(url) { return f(url).then(function (r) { if (!r.ok) throw new Error('NOAA 서버 응답 오류 HTTP ' + r.status); return r.json(); }); }
+    return Promise.all([get(URLS.scales), get(URLS.kp), get(URLS.flares).catch(function () { return null; })])
+      .then(function (r) { return summarize(r[0], r[1], r[2], dateStr); });
+  }
+
+  var api = { URLS: URLS, SCALE_KO: SCALE_KO, LEVEL_KO: LEVEL_KO, has: has, assess: assess, overall: overall, summaryText: summaryText, rows: rows, summarize: summarize, fetchSpaceWx: fetchSpaceWx };
+  root.SpaceWx = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+</script>
 <script>/* js/store.js */
 /* 저장소: IndexedDB 우선, 막혀 있으면 메모리 모드(=JSON 백업으로만 보존). API 키는 여기 저장하지 않는다. */
 (function (root) {
@@ -1553,6 +1672,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       // 광명 자료는 월광 수준만 보낸다 (시각은 위치를 짐작할 수 있어 제외)
       moonlight: briefing.astro && briefing.astro.moon ? pick({ illuminationPct: briefing.astro.moon.illumination, phase: briefing.astro.moon.phaseName,
         level: briefing.astro.moon.lightLevel, moonUpHoursAtNight: briefing.astro.moon.upHours }, ['illuminationPct', 'phase', 'level', 'moonUpHoursAtNight']) : undefined,
+      spaceWeather: root.SpaceWx && root.SpaceWx.has(briefing.spaceWx) ? pick(briefing.spaceWx, ['g', 's', 'r', 'kpMax', 'flare', 'rProb']) : undefined,
       activeWarnings: (briefing.activeWarnings || []).map(function (w) { return { type: w.type, level: w.level }; }),
       hazardLevels: Object.keys(hazards).reduce(function (o, k) { if (hazards[k].level !== 'none') o[k] = hazards[k].level; return o; }, {}),
       ruleResults: (ev.recommendations || []).map(function (r) {
@@ -1871,6 +1991,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       ['야간 월광', m.illumination + '% ' + m.phaseName + ' · ' + m.lightLevel + ' (달 ' + (m.upPeriods.join(', ') || '없음') + ')']
     ];
   }
+  function spaceRows(b) { return root.SpaceWx ? root.SpaceWx.rows(b.spaceWx) : []; }
   function decisionOf(b) { return b.decision || { choice: '', directive: '', commander: '', time: '' }; }
   function box(on) { return on ? '☑' : '☐'; }
 
@@ -2017,6 +2138,20 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       try { s3.addImage({ data: b.captureImage, x: 7.0, y: 4.8, w: 3.2, h: 1.7, sizing: { type: 'contain', w: 3.2, h: 1.7 } }); } catch (e) { /* 이미지 생략 */ }
     }
 
+    // 3-1. 우주기상 (자료가 있을 때만)
+    var SW = root.SpaceWx;
+    if (SW && SW.has(b.spaceWx)) {
+      var sw3 = base('우주기상 (통신·항법 영향)');
+      sw3.addText(SW.summaryText(b.spaceWx), { x: 0.4, y: 1.0, w: 12.5, h: 0.6, fontFace: FONT, fontSize: 16, bold: true, color: NAVY });
+      var swHead = ['영향', '항목', '내용'].map(function (t) { return { text: t, options: { bold: true, fill: { color: 'E8EEF5' } } }; });
+      var swBody = SW.assess(b.spaceWx).map(function (x) {
+        return [{ text: SW.LEVEL_KO[x.level], options: { bold: true, color: x.level === 'adjust' ? '3E2C00' : 'FFFFFF', fill: { color: STATUS_COLOR[x.level] }, align: 'center' } }, x.name, x.text];
+      });
+      sw3.addTable([swHead].concat(swBody), { x: 0.4, y: 1.8, w: 12.5, colW: [1.2, 2.2, 9.1], fontFace: FONT, fontSize: 13, border: { type: 'solid', color: 'BBBBBB', pt: 0.75 }, rowH: 0.55, valign: 'middle' });
+      sw3.addText('G 지자기폭풍 · S 태양복사폭풍 · R 전파두절 (NOAA 등급 0~5). 참고 정보이며 부대활동 판정에는 반영하지 않음.' + (b.spaceWxSource ? '\n출처: ' + b.spaceWxSource : ''),
+        { x: 0.4, y: 4.2, w: 12.5, h: 0.8, fontFace: FONT, fontSize: 11, color: '555555', valign: 'top' });
+    }
+
     // 4. 부대운용 건의
     var s4 = base('부대운용 건의');
     var recs = b.recommendations || [];
@@ -2091,13 +2226,14 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
 
   function printHtml(b, ev, aviation, chartsSvg, opts) {
     var a = opts && opts.includeAi && b.ai && b.ai.advice;
-    var dl = decisionLines(b), ast = astroRows(b.astro);
+    var dl = decisionLines(b), ast = astroRows(b.astro), swr = spaceRows(b);
     return '<div class="print-page">' +
       '<h1>' + esc(titleLine(b)) + '</h1>' +
       '<p class="print-meta">작성: ' + esc(b.author || '-') + ' · 종합 판단: <b>' + STATUS_KO[ev.overall] + '</b> · ' + esc(warningsText(b)) + '</p>' +
       '<h2>기상 현황</h2><div class="print-two">' + metricTableHtml(b, ev, false) + '<div><p><b>특보 기준 판단</b><br>' + esc(hazardSummary(ev)) + '</p>' +
       (aviation && aviation.latest ? '<p><b>현재 관측</b><br><span class="mono">' + esc(aviation.latest.raw) + '</span></p>' : '') + '</div></div>' +
       (ast.length ? '<h2>광명 자료 (' + esc(b.astro.date + ', ' + (b.astro.locationName || '')) + ')</h2>' + rowsTableHtml(ast, false) : '') +
+      (swr.length ? '<h2>우주기상 (통신·항법 영향)</h2>' + rowsTableHtml(swr, false) : '') +
       (chartsSvg ? '<h2>시간대별 예보</h2>' + chartsSvg : '') +
       '<h2>부대운용 건의</h2>' + recTableHtml(b, false) +
       (a ? '<h2>AI 보조 조언 (참고)</h2><p>' + esc(a.summary) + '</p><ul>' + a.risks.map(function (r) { return '<li>' + esc(r.title + ' — ' + r.detail + (r.timeWindow ? ' [' + r.timeWindow + ']' : '')) + '</li>'; }).join('') + '</ul><p class="print-meta">모델 ' + esc(b.ai.model) + '</p>' : '') +
@@ -2108,11 +2244,12 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   }
 
   function hangulHtml(b, ev) {
-    var dl = decisionLines(b), ast = astroRows(b.astro);
+    var dl = decisionLines(b), ast = astroRows(b.astro), swr = spaceRows(b);
     var cell = ' style="border:1px solid #888;padding:6px;font-family:' + CSS_FONT + ';font-size:10pt;"';
     return '<p style="font-family:' + CSS_FONT + ';font-size:11pt;font-weight:bold;">' + esc(titleLine(b)) + '</p>' +
       '<p style="font-family:' + CSS_FONT + ';font-size:10pt;">' + esc(warningsText(b)) + ' / 종합 판단: ' + STATUS_KO[ev.overall] + '</p>' +
       metricTableHtml(b, ev, true) + '<p></p>' + (ast.length ? rowsTableHtml([['광명 자료', b.astro.date + ' ' + (b.astro.locationName || '')]].concat(ast), true) + '<p></p>' : '') +
+      (swr.length ? rowsTableHtml(swr, true) + '<p></p>' : '') +
       recTableHtml(b, true) + '<p></p>' +
       '<table style="border-collapse:collapse;width:100%;"><tbody>' +
       '<tr><td' + cell + '>지휘관 지시사항</td><td' + cell + ' height="80">' + esc(dl.directive) + '</td></tr>' +
@@ -2125,6 +2262,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     var lines = [titleLine(b), warningsText(b) + ' / 종합 판단: ' + STATUS_KO[ev.overall], ''];
     metricRows(b, ev).forEach(function (r) { lines.push(r[0] + '\t' + r[1]); });
     astroRows(b.astro).forEach(function (r) { lines.push(r[0] + '\t' + r[1]); });
+    spaceRows(b).forEach(function (r) { lines.push(r[0] + '\t' + r[1]); });
     lines.push('', '활동\t판단\t근거\t건의\t지휘관 결심');
     (b.recommendations || []).forEach(function (r) { lines.push([r.name, STATUS_KO[r.status], basisLines(r).join('; '), r.text, decisionText(r, ' ')].join('\t')); });
     var dl = decisionLines(b);
@@ -2257,12 +2395,12 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       rawText: '', override: {}, captureImage: null,
       civilInput: { hourly: HOURS.map(function (x) { return { time: x, temp: '', feels: '', windMs: '', rainMm: '', pop: '' }; }) },
       activeWarnings: [], recommendations: [], evaluation: null, ai: null, memo: '', evaluated: false,
-      astro: null, decision: { choice: '', directive: '', commander: '', time: '' }
+      astro: null, spaceWx: {}, decision: { choice: '', directive: '', commander: '', time: '' }
     };
     if (from) {
       b.sessionType = '기상이변'; b.rawText = from.rawText || ''; b.civilInput = clone(from.civilInput || b.civilInput);
       b.activeWarnings = clone(from.activeWarnings || []); b.region = from.region || b.region; b.override = clone(from.override || {});
-      b.captureImage = from.captureImage || null;
+      b.captureImage = from.captureImage || null; b.spaceWx = clone(from.spaceWx || {}); b.spaceWxSource = from.spaceWxSource || '';
     }
     return b;
   }
@@ -2272,6 +2410,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     $('f-session').value = b.sessionType; $('f-target').value = b.targetTime; $('f-author').value = b.author || '';
     $('f-region').value = b.region || 'land'; $('f-raw').value = b.rawText || ''; $('f-memo').value = b.memo || '';
     document.querySelectorAll('[data-civil]').forEach(function (el) { var v = b.civilInput[el.dataset.civil]; el.value = v == null ? '' : v; });
+    fillSpaceWx();
     var o = b.override || {};
     ['windKt', 'gustKt', 'visKm', 'ceilFt'].forEach(function (k) { $('o-' + k).value = o[k] == null ? '' : o[k]; });
     $('o-ts').checked = !!o.ts;
@@ -2286,6 +2425,10 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     b.unitName = state.settings.unitName || b.unitName || '';
     document.querySelectorAll('[data-civil]').forEach(function (el) {
       var k = el.dataset.civil; b.civilInput[k] = el.type === 'number' ? numOrBlank(el.value) : el.value.trim();
+    });
+    b.spaceWx = {};
+    document.querySelectorAll('[data-sw]').forEach(function (el) {
+      var k = el.dataset.sw; b.spaceWx[k] = el.tagName === 'SELECT' || el.type === 'number' ? numOrBlank(el.value) : el.value.trim().toUpperCase();
     });
     var rows = document.querySelectorAll('#hourly-body tr');
     b.civilInput.hourly = Array.prototype.map.call(rows, function (tr, i) {
@@ -2470,6 +2613,22 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       '</div>' + (a.isDefaultLocation ? '<p class="hint" style="color:#b26a00">기본 위치(서울)로 계산했습니다. 이력 · 설정 → 설정에서 부대 위치를 입력하세요.</p>' : '');
   }
 
+  /* 우주기상: 통신·항법 영향 (참고, 부대활동 판정에는 넣지 않음) */
+  var SW_HINT = 'G·S·R은 NOAA 우주기상 등급(0~5)입니다. 결과는 통신·항법 참고 정보로 표시되며 부대활동 판정에는 반영하지 않습니다.';
+  function fillSpaceWx() {
+    var sw = state.b.spaceWx || {};
+    document.querySelectorAll('[data-sw]').forEach(function (el) { var v = sw[el.dataset.sw]; el.value = v == null ? '' : v; });
+    $('sw-source').textContent = state.b.spaceWxSource ? '출처: ' + state.b.spaceWxSource + ' · ' + SW_HINT : SW_HINT;
+  }
+  function renderSpaceWx() {
+    var b = state.b, SW = window.SpaceWx, sw = b.spaceWx || {};
+    if (!SW.has(sw)) { $('sw-meta').textContent = ''; $('sw-body').innerHTML = '<p class="hint">입력 화면의 우주기상 칸을 채우거나 인터넷 우주기상 가져오기를 누르면 통신·항법 영향이 표시됩니다.</p>'; return; }
+    $('sw-meta').textContent = SW.summaryText(sw);
+    $('sw-body').innerHTML = '<div class="table-scroll"><table class="rec"><thead><tr><th>영향</th><th>항목</th><th>내용</th></tr></thead><tbody>' +
+      SW.assess(sw).map(function (x) { return '<tr><td class="light ' + x.level + '">' + SW.LEVEL_KO[x.level] + '</td><td class="name">' + esc(x.name) + '</td><td>' + esc(x.text) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>' + (b.spaceWxSource ? '<p class="hint">출처: ' + esc(b.spaceWxSource) + '</p>' : '');
+  }
+
   /* 지휘관 결심: 활동별 승인/수정/보류는 건의 표의 오른쪽 칸, 여기는 지시사항과 서명 정보 */
   var DECISIONS = ['승인', '수정', '보류'];
   function stampDecisionTime() {
@@ -2522,6 +2681,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     $('chart-civil').innerHTML = charts.civil; $('chart-av').innerHTML = charts.av;
     renderRecTable();
     renderAstro();
+    renderSpaceWx();
     renderAi();
     renderDecision();
     updateChips();
@@ -2920,6 +3080,9 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       ['temp', 'feels', 'windMs', 'rainMm', 'pop'].forEach(function (k, j) { tr.querySelector('[data-h="' + k + '"]').value = hr[i][j]; });
     });
     document.querySelectorAll('#warn-grid select').forEach(function (sel) { sel.value = sel.dataset.haz === 'snow' ? 'advisory' : ''; sel.onchange(); });
+    var sw = { g: 2, s: 0, r: 1, kpMax: 6, flare: 'M1.4', rProb: 35 };
+    document.querySelectorAll('[data-sw]').forEach(function (el) { el.value = sw[el.dataset.sw]; });
+    b.spaceWxSource = ''; $('sw-source').textContent = SW_HINT;
     if (!$('f-author').value) $('f-author').value = '예시 작성자';
     doParse(); toast('예시 자료를 넣었습니다. 판단 실행을 눌러 보세요.');
   }
@@ -2963,6 +3126,24 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       }).then(function () { btn.disabled = false; btn.textContent = '인터넷 예보 가져오기'; });
     });
   }
+  function fetchSpaceWx() {
+    readForm();
+    var ds = (state.b.targetTime || '').slice(0, 10);
+    modal('인터넷 우주기상 가져오기', '<p><b>' + esc(ds) + '</b> 우주기상을 NOAA 우주기상예보센터(services.swpc.noaa.gov)에서 가져옵니다.</p><p>전송 내용: 없음 (공개 자료를 내려받기만 합니다).</p>',
+      [{ label: '취소', value: false }, { label: '가져오기', value: true, primary: true }]).then(function (go) {
+      if (!go) return;
+      var btn = $('btn-fetch-sw'); btn.disabled = true; btn.textContent = '가져오는 중…';
+      window.SpaceWx.fetchSpaceWx(ds).then(function (sw) {
+        state.b.spaceWx = sw;
+        state.b.spaceWxSource = 'NOAA SWPC (' + new Date().toLocaleString('ko-KR') + ' 조회)';
+        fillSpaceWx();
+        if (state.b.evaluated) { renderSpaceWx(); scheduleSave(); }
+        toast(ds + ' 우주기상을 채웠습니다: ' + window.SpaceWx.summaryText(sw));
+      }, function (e) {
+        toast('우주기상을 가져오지 못했습니다: ' + (e.message || e) + ' (인터넷 연결을 확인하세요)', true);
+      }).then(function () { btn.disabled = false; btn.textContent = '인터넷 우주기상 가져오기'; });
+    });
+  }
   function updateAvLinks() {
     var l = window.OpenMeteo.aviationLinks(($('f-av-ids').value || 'RKSS').toUpperCase().replace(/\s+/g, ''));
     $('lnk-metar').href = l.metar; $('lnk-taf').href = l.taf;
@@ -2983,6 +3164,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
     };
     $('btn-sample').onclick = sampleData;
     $('btn-fetch-civil').onclick = fetchCivil;
+    $('btn-fetch-sw').onclick = fetchSpaceWx;
     $('f-av-ids').oninput = updateAvLinks; updateAvLinks();
     $('btn-parse').onclick = function () { doParse(); };
     $('f-raw').addEventListener('change', function () { doParse(); });
