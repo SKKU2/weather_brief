@@ -496,9 +496,9 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
         <div class="grid g3">
           <label>사용 방식
             <select id="s-ai-provider">
-              <option value="off">끔 (기본, 외부 통신 없음)</option>
+              <option value="off">끔 (외부 통신 없음)</option>
               <option value="mock">모의 (키 없이 시연·테스트)</option>
-              <option value="claude-key">Claude API 키</option>
+              <option value="claude-key">Claude API 키 (기본)</option>
               <option value="custom-endpoint">내부 승인 엔드포인트</option>
             </select>
           </label>
@@ -977,7 +977,7 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
       // 위치는 공개 배포 코드에 넣지 않는다. 각 사용자가 설정에서 입력하면 그 브라우저에만 저장된다.
       location: { name: '서울', lat: 37.57, lng: 126.98, isDefault: false },
       thresholds: defaultThresholds(), activities: defaultActivities(),
-      ai: { provider: 'off', model: 'claude-sonnet-5-5', effort: 'low', endpoint: '', includeInOutputs: true }
+      ai: { provider: 'claude-key', model: 'claude-sonnet-5-5', effort: 'low', endpoint: '', includeInOutputs: true }
     };
   }
 
@@ -2615,6 +2615,10 @@ summary { cursor: pointer; color: var(--accent); font-weight: bold; font-size: 1
   function requestAi() {
     var b = state.b, cfg = state.settings.ai;
     if (cfg.provider === 'off') { toast('AI가 꺼져 있습니다. 설정에서 켜세요.', true); return; }
+    if (cfg.provider === 'claude-key' && !A.keyStore.has()) {
+      showTab('history'); showSub('settings'); $('s-ai-key').focus();
+      toast('Claude API 키를 먼저 저장하세요. 키는 이 PC 브라우저에만 저장됩니다.', true); return;
+    }
     var payload = A.buildPayload({ sessionType: b.sessionType, region: b.region, civilInput: b.civilInput, activeWarnings: b.activeWarnings, aviation: state.aviation, astro: b.astro,
       evaluation: { metrics: b.evaluation.metrics, hazards: b.evaluation.hazards, recommendations: b.recommendations } });
     var dest = cfg.provider === 'mock' ? '모의 모드 (외부로 전송하지 않음)' : cfg.provider === 'claude-key' ? A.API_URL + ' (모델 ' + cfg.model + ')' : cfg.endpoint;
